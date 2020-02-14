@@ -2,24 +2,18 @@ package sysbench
 
 import (
 	"database/sql"
-	"fmt"
+	// "fmt"
+	// "log"
+	// "net/http"
+	_ "net/http/pprof"
 	"time"
 
 	"github.com/VividCortex/gohistogram"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/spf13/cobra"
+	// "github.com/spf13/cobra"
 )
 
-func CmdRun(cmd *cobra.Command, args []string) {
-	db, err := sql.Open("mysql", getDSN())
-	handleErr(err)
-	db.SetMaxOpenConns(512)
-
-	task := DefaultRunTask{}
-	runTask(task, db)
-}
-
-func runTask(task RunTask, db *sql.DB) error {
+func runTask(workerCount int, duration time.Duration, task RunTask, db *sql.DB) error {
 	notify := make(chan struct{})
 
 	report := &Report{
@@ -27,45 +21,28 @@ func runTask(task RunTask, db *sql.DB) error {
 	}
 	exit := make(chan struct{})
 	sampleCh := make(chan []float64, 10)
-	go func(hist *gohistogram.NumericHistogram, input chan []float64, total int, exit chan struct{}) {
-		finished := 0
-		for data := range input {
-			if data == nil {
-				// use data == nil to mean finish
-				finished++
-				if finished == total {
-					break
-				}
-			}
-			for _, val := range data {
-				hist.Add(val)
-			}
-		}
-		close(exit)
-	}(report.Hist, sampleCh, WorkerCount, exit)
+	go backgroundStatistics(report.Hist, sampleCh, workerCount, exit)
 
-	workers := make([]Worker, WorkerCount)
-	for i := 0; i < WorkerCount; i++ {
-		workers[i] = Worker{ID: i, Count: WorkerCount, dur: make([]float64, 0, 100)}
+	workers := make([]Worker, workerCount)
+	for i := 0; i < workerCount; i++ {
+		workers[i] = Worker{ID: i, Count: workerCount, dur: make([]float64, 0, 100)}
 		go workers[i].run(task, db, sampleCh, notify)
 	}
 
 	start := time.Now()
-	err := largeTxn(task, db, notify)
+	time.Sleep(duration)
+	close(notify)
 	report.Duration = time.Since(start)
-	if err != nil {
-		fmt.Println("run large txn fail:", err)
-	}
 	<-exit
 
-	for i := 0; i < WorkerCount; i++ {
+	for i := 0; i < workerCount; i++ {
 		report.Succ += workers[i].succ
 		report.Fail += workers[i].fail
 	}
 
 	report.Report()
 
-	return err
+	return nil
 }
 
 func (worker *Worker) run(task RunTask, db *sql.DB, sampleCh chan<- []float64, done <-chan struct{}) {
@@ -79,7 +56,7 @@ func (worker *Worker) run(task RunTask, db *sql.DB, sampleCh chan<- []float64, d
 		}
 
 		start := time.Now()
-		err := task.SmallTxn(worker, db)
+		err := task.Execute(worker, db)
 		elapse := time.Since(start)
 		if err != nil {
 			worker.fail++
@@ -96,34 +73,50 @@ func (worker *Worker) run(task RunTask, db *sql.DB, sampleCh chan<- []float64, d
 	}
 }
 
-type DefaultRunTask struct {
-	LargeUpdate
-	SelectRandomPoints
-	UpdateRandomPoints
-}
-
-func largeTxn(task LargeTxner, db *sql.DB, notify chan struct{}) error {
-	defer close(notify)
-	err := task.LargeTxn(db)
-	if err != nil {
-		return err
+func backgroundStatistics(hist *gohistogram.NumericHistogram, input chan []float64, total int, exit chan struct{}) {
+	finished := 0
+	for data := range input {
+		if data == nil {
+			// use data == nil to mean finish
+			finished++
+			if finished == total {
+				break
+			}
+		}
+		for _, val := range data {
+			hist.Add(val)
+		}
 	}
+	close(exit)
+}
+
+func DefaultRunTask() RunTask {
+	return baseRunTask{}
+}
+
+type baseRunTask struct{}
+
+func (t baseRunTask) Execute(worker *Worker, db *sql.DB) error {
 	return nil
 }
 
-func (t DefaultRunTask) SmallTxn(worker *Worker, db *sql.DB) error {
-	t.SelectRandomPoints.SmallTxn(worker, db)
-	t.UpdateRandomPoints.SmallTxn(worker, db)
-	return nil
+func Run(conf *Config) {
+	db, err := sql.Open("mysql", conf.Conn.getDSN())
+	handleErr(err)
+	defer db.Close()
+
+	db.SetMaxOpenConns(512)
+
+	err = runTask(conf.Run.WorkerCount, conf.Run.Duration, conf.Run.Task, db)
+	handleErr(err)
 }
 
-func RunTest(task TestTask) {
-	db, err := sql.Open("mysql", getDSN())
-	handleErr(err)
+func RunTest(conf *Config) {
+	// go func() {
+	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
+	// }()
 
-	err = prepareTask(task, db)
-	handleErr(err)
-
-	err = runTask(task, db)
-	handleErr(err)
+	Prepare(conf)
+	Run(conf)
+	Cleanup(conf)
 }

@@ -1,4 +1,4 @@
-module github.com/pingcap/tidb-test/large_txn
+module github.com/tiancaiamao/sysbench
 
 go 1.13
 

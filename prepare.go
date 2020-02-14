@@ -10,12 +10,8 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/pingcap/errors"
-	"github.com/spf13/cobra"
+	// "github.com/spf13/cobra"
 )
-
-func getDSN() string {
-	return fmt.Sprintf("%s@tcp(%s:%d)/%s", UserFlag, HostFlag, PortFlag, DBFlag)
-}
 
 type Worker struct {
 	ID    int
@@ -25,24 +21,24 @@ type Worker struct {
 	dur   []float64
 }
 
-func CmdPrepare(cmd *cobra.Command, args []string) {
-	db, err := sql.Open("mysql", getDSN())
+func Prepare(conf *Config) {
+	db, err := sql.Open("mysql", conf.Conn.getDSN())
 	handleErr(err)
 	db.SetMaxOpenConns(512)
 
-	task := DefaultPrepareTask{}
-	prepareTask(task, db)
+	err = prepareTask(conf.Prepare.WorkerCount, conf.Prepare.Task, db)
+	handleErr(err)
 }
 
-func prepareTask(task PrepareTask, db *sql.DB) error {
+func prepareTask(workerCount int, task PrepareTask, db *sql.DB) error {
 	err := task.CreateTable(db)
 	handleErr(err)
 
 	var wg sync.WaitGroup
-	wg.Add(WorkerCount)
-	errs := make([]error, WorkerCount)
-	for id := 0; id < WorkerCount; id++ {
-		worker := Worker{ID: id, Count: WorkerCount, dur: make([]float64, 0, 100)}
+	wg.Add(workerCount)
+	errs := make([]error, workerCount)
+	for id := 0; id < workerCount; id++ {
+		worker := Worker{ID: id, Count: workerCount, dur: make([]float64, 0, 100)}
 		go worker.prepare(task, db, id, &wg, &errs[id])
 	}
 	wg.Wait()
@@ -91,26 +87,33 @@ func randString(n int) string {
 	return buf.String()
 }
 
-type DefaultPrepareTask struct {
+type basePrepareTask struct {
 	InsertCount    int
 	RowsEachInsert int
 }
 
-func (t DefaultPrepareTask) insertCount() int {
+func DefaultPrepareTask() PrepareTask {
+	return basePrepareTask{
+		InsertCount:    1000,
+		RowsEachInsert: 50,
+	}
+}
+
+func (t basePrepareTask) insertCount() int {
 	if t.InsertCount > 0 {
 		return t.InsertCount
 	}
 	return 1000
 }
 
-func (t DefaultPrepareTask) rowsEachInsert() int {
+func (t basePrepareTask) rowsEachInsert() int {
 	if t.RowsEachInsert > 0 {
 		return t.RowsEachInsert
 	}
 	return 30
 }
 
-func (_ DefaultPrepareTask) CreateTable(db *sql.DB) error {
+func (_ basePrepareTask) CreateTable(db *sql.DB) error {
 	sql1 := `create table if not exists sbtest1 (
 id int(11) not null primary key,
 k int(11) not null,
@@ -133,7 +136,7 @@ pad char(255) not null default '')`
 	return nil
 }
 
-func (task DefaultPrepareTask) InsertData(worker *Worker, db *sql.DB) error {
+func (task basePrepareTask) InsertData(worker *Worker, db *sql.DB) error {
 	var buf bytes.Buffer
 	pkID := worker.ID
 	for i := 0; i < task.insertCount(); i++ {

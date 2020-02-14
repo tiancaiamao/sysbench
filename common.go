@@ -10,7 +10,7 @@ import (
 
 type SelectRandomPoints struct{}
 
-func (_ SelectRandomPoints) SmallTxn(worker *Worker, db *sql.DB) error {
+func (_ SelectRandomPoints) Execute(worker *Worker, db *sql.DB) error {
 	rows, err := db.Query("select id, k, c, pad from sbtest2 where k in (?, ?, ?)", rand.Intn(100000), rand.Intn(100000), rand.Intn(100000))
 	defer rows.Close()
 	if err != nil {
@@ -21,7 +21,7 @@ func (_ SelectRandomPoints) SmallTxn(worker *Worker, db *sql.DB) error {
 
 type UpdateRandomPoints struct{}
 
-func (_ UpdateRandomPoints) SmallTxn(worker *Worker, db *sql.DB) error {
+func (_ UpdateRandomPoints) Execute(worker *Worker, db *sql.DB) error {
 	rows, err := db.Query("update sbtest2 set k = k + 1 where id in (?, ?, ?)", rand.Intn(100000), rand.Intn(100000), rand.Intn(100000))
 	defer rows.Close()
 	if err != nil {
@@ -32,7 +32,7 @@ func (_ UpdateRandomPoints) SmallTxn(worker *Worker, db *sql.DB) error {
 
 type SelectRandomRanges struct{}
 
-func (_ SelectRandomRanges) SmallTxn(worker *Worker, db *sql.DB) error {
+func (_ SelectRandomRanges) Execute(worker *Worker, db *sql.DB) error {
 	// db.Query("SELECT count(k) FROM sbteste1 WHERE k BETWEEN ? AND ? OR k BETWEEN ? AND ?")
 	return nil
 }

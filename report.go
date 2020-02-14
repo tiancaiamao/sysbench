@@ -25,7 +25,6 @@ func (r *Report) Report() {
 	fmt.Println("Quantile 99: ", r.Hist.Quantile(0.99))
 	fmt.Println("Total Succ:", r.Succ)
 	fmt.Println("Total Fail:", r.Fail)
-	fmt.Println("LargeTxn Duration:", r.Duration)
 	if r.Error {
 		fmt.Println("Failed!!!")
 	}

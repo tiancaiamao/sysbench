@@ -4,14 +4,8 @@ import (
 	"database/sql"
 )
 
-type TestTask interface {
-	PrepareTask
-	RunTask
-}
-
 type RunTask interface {
-	LargeTxner
-	SmallTxner
+	Execute(worker *Worker, db *sql.DB) error
 }
 
 type PrepareTask interface {
@@ -19,10 +13,6 @@ type PrepareTask interface {
 	InsertData(worker *Worker, db *sql.DB) error
 }
 
-type LargeTxner interface {
-	LargeTxn(db *sql.DB) error
-}
-
-type SmallTxner interface {
-	SmallTxn(worker *Worker, db *sql.DB) error
+type CleanupTask interface {
+	DropTable(db *sql.DB) error
 }
